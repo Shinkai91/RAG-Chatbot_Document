@@ -1,7 +1,7 @@
 import streamlit as st
 from pathlib import Path
 from populate_database import populate
-from query_data import get_source_filenames, query_rag
+from graph_rag import get_source_filenames, build_and_run_graph
 
 # ------------------- Konfigurasi halaman -------------------
 st.set_page_config(
@@ -11,6 +11,7 @@ st.set_page_config(
 )
 
 # ------------------- CSS Kustom untuk Tampilan Kiri-Kanan -------------------
+# (Tidak ada perubahan pada CSS, tetap sama)
 st.markdown("""
 <style>
     /* Mengatur bubble chat */
@@ -65,16 +66,18 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 if "selected_model" not in st.session_state:
     st.session_state.selected_model = "gemma:2b" # Model default
+if "selected_full_paths" not in st.session_state:
+    st.session_state.selected_full_paths = []
 
 # ------------------- Header -------------------
-st.markdown('<div class="main-header"><h1>🤖 RAG Assistant</h1><p>Pilih model dan dokumen, lalu tanyakan apapun tentang isinya.</p></div>', unsafe_allow_html=True)
+st.markdown('<div class="main-header"><h1>RAG Assistant</h1><p>Pilih model dan dokumen, lalu tanyakan apapun tentang isinya.</p></div>', unsafe_allow_html=True)
 
 # ------------------- Sidebar -------------------
 with st.sidebar:
     st.header("⚙️ Pengaturan")
 
     # Dropdown untuk memilih model
-    model_options = ["gemma:2b", "phi", "deepseek-r1:1.5b"]
+    model_options = ["gemma:2b", "phi", "deepseek-coder:1.3b"]
     st.session_state.selected_model = st.selectbox(
         label="Pilih model AI",
         options=model_options,
@@ -93,16 +96,17 @@ with st.sidebar:
         selected_files = st.multiselect(
             label="Pilih dokumen yang akan digunakan sebagai sumber jawaban.",
             options=options,
-            key="selected_files_state"
+            default=[name.split('/')[-1] for name in st.session_state.get('selected_full_paths', [])]
         )
         
-        selected_full_paths = [
+        # Simpan path lengkap dari file yang dipilih ke session state
+        st.session_state.selected_full_paths = [
             source for source in all_source_names 
             if source.split('/')[-1] in selected_files
         ]
 
-        if selected_full_paths:
-            st.success(f"{len(selected_full_paths)} dokumen aktif.")
+        if st.session_state.selected_full_paths:
+            st.success(f"{len(st.session_state.selected_full_paths)} dokumen aktif.")
         else:
             st.info("Tidak ada dokumen aktif. AI akan menjawab dengan pengetahuan umum.")
     else:
@@ -116,7 +120,7 @@ with st.sidebar:
         if st.button("🚀 Proses Dokumen", use_container_width=True):
             data_path = Path("data"); data_path.mkdir(exist_ok=True)
             for uploaded_file in uploaded_files:
-                 with open(data_path / uploaded_file.name, "wb") as f: f.write(uploaded_file.getbuffer())
+                with open(data_path / uploaded_file.name, "wb") as f: f.write(uploaded_file.getbuffer())
             with st.spinner("Memproses PDF ke database..."): populate()
             st.cache_data.clear(); st.rerun()
 
@@ -138,7 +142,8 @@ if prompt := st.chat_input("Tanyakan sesuatu..."):
         st.markdown(prompt)
 
     with st.spinner(f"🤖 Model '{st.session_state.selected_model}' sedang berpikir..."):
-        result = query_rag(prompt, selected_full_paths, st.session_state.selected_model)
+        # --- PERUBAHAN: Panggil fungsi dari graph_rag.py ---
+        result = build_and_run_graph(prompt, st.session_state.selected_full_paths, st.session_state.selected_model)
         full_response = result["answer"]
         
         if result["sources"]:
@@ -154,6 +159,6 @@ if prompt := st.chat_input("Tanyakan sesuatu..."):
 st.markdown("---")
 st.markdown("""
 <div style="text-align: center; color: #aaaaaa; padding: 1rem;">
-    <small>Dibuat dengan menggunakan Streamlit, LangChain & Ollama</small>
+    <small>Dibuat dengan menggunakan Streamlit, LangChain, LangGraph & Ollama</small>
 </div>
 """, unsafe_allow_html=True)
